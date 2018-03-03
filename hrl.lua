@@ -11,6 +11,7 @@ race = false
 mode = 0
 player_warps = {}
 game_started = false
+debug = 1
 
 local sha2 = require("sha2");
 
@@ -50,39 +51,48 @@ end
 
 function OnPlayerScore(playerIndex)
 
-	-- Skip if user is not driver
+	-- Only record if user is driver, or walking
 	local player_address = get_dynamic_player(playerIndex)
 	local vehicle_objectid = read_dword(player_address + 0x11C)
+  local seat = 0
 	if(tonumber(vehicle_objectid) ~= 0xFFFFFFFF) then
 		local vehicle = get_object_memory(tonumber(vehicle_objectid))
 		local driver = read_dword(vehicle + 0x324)
 		driver = get_object_memory(tonumber(driver))
+
 		if(driver == player_address) then
+      seat = 0
+    else
+      seat = 1
+    end
+  end
+  if (seat == 0) then
+		print("Record Lap")
 
-			print("Record Lap")
+		player = get_player(playerIndex)
+		current_name =  string.toutf8(get_var(playerIndex, "$name"))
+		best_time = read_word(player + 0xC4)--	Player's current time
+		best_time = best_time/30
+		player_hash = get_var(playerIndex, "$hash")
+		player_hash = sha2.sha256(player_hash) --encode it again for added security
 
-			player = get_player(playerIndex)
-			current_name =  string.toutf8(get_var(playerIndex, "$name"))
-			best_time = read_word(player + 0xC4)--	Player's current time
-			best_time = best_time/30
-			player_hash = get_var(playerIndex, "$hash")
-			player_hash = sha2.sha256(player_hash) --encode it again for added security
+		-- Need to find correct addresses for these!
+		--server_port = read_word(0x625230)
+		--map_slug = read_string(0x63BC78)
+		--map_name = read_string(0x698F21)
+		map_name = ""
 
-			-- Need to find correct addresses for these!
-			--server_port = read_word(0x625230)
-			--map_slug = read_string(0x63BC78)
-			--map_name = read_string(0x698F21)
-			map_name = ""
+		json = '{"port":"'..server_port..'", "player_hash": "'..player_hash..'", "player_name":"'..current_name..'", "map_name": "'..current_map..'", "map_label": "'..map_name..'", "race_type": "'..mode..'", "player_time":"'..best_time..'"}'
 
-			json = '{"port":"'..server_port..'", "player_hash": "'..player_hash..'", "player_name":"'..current_name..'", "map_name": "'..current_map..'", "map_label": "'..map_name..'", "race_type": "'..mode..'", "player_time":"'..best_time..'"}'
+		URL = "http://haloraceleaderboard.effakt.info/api/newtime"
 
-			URL = "http://haloraceleaderboard.effakt.info/api/newtime"
+    if (debug == 1) then
+      say(playerIndex, "Your time of "..best_time.." has been recorded")
+    end
 
-			SendTime(URL, json)
+		SendTime(URL, json)
 
-		end
 	end
-
 end
 
 function OnWarp(PlayerIndex)
