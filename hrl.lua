@@ -1,8 +1,6 @@
 server_port = "2302" -- update this with your port. If port is invalid, your server will not be included.
 
 
-
-
 api_version = "1.11.0.0"
 
 
@@ -11,9 +9,11 @@ race = false
 mode = 0
 player_warps = {}
 game_started = false
-debug = 1
-
-local sha2 = require("sha2");
+allow_warps = false
+debug = 0
+player_ping = {}
+last_ping_check = 0
+ping_threshold = 20
 
 ffi = require("ffi")
 ffi.cdef [[
@@ -30,6 +30,8 @@ end
 
 function OnScriptLoad()
 
+	register_callback(cb['EVENT_COMMAND'], "OnServerCommand")
+
 	if (halo_type == "PC") then
         gametype_base = 0x671340
     else
@@ -38,15 +40,44 @@ function OnScriptLoad()
 	register_callback(cb['EVENT_GAME_START'], "OnGameStart")
 	register_callback(cb['EVENT_GAME_END'], "OnGameEnd")
 	register_callback(cb['EVENT_JOIN'], "OnPlayerJoin")
-	register_callback(cb['EVENT_DIE'], "OnPlayerDeath")
-	register_callback(cb['EVENT_WARP'],"OnWarp")
+   register_callback(cb['EVENT_WARP'],"OnWarp")
+   register_callback(cb['EVENT_TICK'], "OnTick")
 
 	CheckMapAndGametype(true)
 
 	for i = 1,16 do--	Reset personal stats
 		player_warps[i] = 0
+		player_ping[i] = 0
 	end
 end
+
+function tokenizestring(inputstr, sep)
+    if sep == nil then
+        sep = "%s"
+    end
+    local t = {};
+    i = 1
+    for str in string.gmatch(inputstr, "([^" .. sep .. "]+)") do
+        t[i] = str
+        i = i + 1
+    end
+    return t
+end
+
+function OnServerCommand(playerIndex, Command)
+    local t = tokenizestring(Command)
+    count = #t
+    -- /logtime time
+    if debug then
+
+        if t[1] == "logtime" then
+		player = get_player(playerIndex)
+        	logTime(playerIndex, t[2])
+		return false;
+        end
+    end
+end
+
 
 
 function OnPlayerScore(playerIndex)
@@ -66,15 +97,23 @@ function OnPlayerScore(playerIndex)
       seat = 1
     end
   end
-  if (seat == 0) then
-		print("Record Lap")
-
+  if (seat == 0 and player_warps[playerIndex] == 0) then
 		player = get_player(playerIndex)
-		current_name =  string.toutf8(get_var(playerIndex, "$name"))
 		best_time = read_word(player + 0xC4)--	Player's current time
 		best_time = best_time/30
+		logTime(player, best_time)
+
+	elseif (player_warps[playerIndex] == 1) then
+		say(playerIndex, "We detected a warp or a lag spike, your lap time was not recorded")
+	end
+end
+
+function logTime(playerIndex, best_time)
+	
+
+   current_name =  string.toutf8(get_var(playerIndex, "$name"))
 		player_hash = get_var(playerIndex, "$hash")
-		player_hash = sha2.sha256(player_hash) --encode it again for added security
+		player_hash = player_hash
 
 		-- Need to find correct addresses for these!
 		--server_port = read_word(0x625230)
@@ -82,31 +121,39 @@ function OnPlayerScore(playerIndex)
 		--map_name = read_string(0x698F21)
 		map_name = ""
 
-		json = '{"port":"'..server_port..'", "player_hash": "'..player_hash..'", "player_name":"'..current_name..'", "map_name": "'..current_map..'", "map_label": "'..map_name..'", "race_type": "'..mode..'", "player_time":"'..best_time..'"}'
+		if (debug) then
+			json = '{"port":"'..server_port..'", "player_hash": "'..player_hash..'", "player_name":"'..current_name..'", "map_name": "'..current_map..'", "map_label": "'..map_name..'", "race_type": "'..mode..'", "player_time":"'..best_time..'", "test":"true"}'
+		else
+			json = '{"port":"'..server_port..'", "player_hash": "'..player_hash..'", "player_name":"'..current_name..'", "map_name": "'..current_map..'", "map_label": "'..map_name..'", "race_type": "'..mode..'", "player_time":"'..best_time..'"}'
+		end
 
-		URL = "http://haloraceleaderboard.effakt.info/api/newtime"
+      if (debug == 1) then
+         URL = "http://dev.haloraceleaderboard.effakt.info/api/newtime"
+      else
+         URL = "http://haloraceleaderboard.effakt.info/api/newtime"
+      end
 
-    if (debug == 1) then
-      say(playerIndex, "Your time of "..best_time.." has been recorded")
-    end
+	    if (debug == 1) then
+         say(playerIndex, "Your time of "..best_time.." has been recorded")
+	    end
 
 		SendTime(URL, json)
-
-	end
 end
 
 function OnWarp(PlayerIndex)
-	player_warps[PlayerIndex] = 1
+	if (allow_warps == false) then
+		player_warps[PlayerIndex] = 1
+	end
 end
 
-function OnPlayerDeath(PlayerIndex)
-	player_warps[PlayerIndex] = 1
-end
-
-function OnPlayerJoin(playerIndex)--	Inform player about the best time!
+function OnPlayerJoin(playerIndex)
 	if(race == false) then
 		CheckMapAndGametype(false)
-	end
+   end
+   
+   --on player join, set their ping
+	player_ping[playerIndex] = GetPlayerPing(playerIndex)
+
 	say(playerIndex, "This server runs Halo Race Leaderboard.")
 	say(playerIndex, "For more information, or to see the leaderboard, go to hrl.effakt.info")
 end
@@ -137,6 +184,12 @@ end
 function OnGameStart()
 	CheckMapAndGametype(true)
 	game_started = true
+
+   --at game start, we set their ping
+   for i = 1,16 do
+		player_ping[i] = GetPlayerPing(i)
+	end
+
 end
 
 function ResetGameStarted()
@@ -145,7 +198,8 @@ end
 
 function OnGameEnd()
 	for i = 1,16 do
-		player_warps[i] = 0
+      player_warps[i] = 0
+		player_ping[i] = 0
 	end
 	if(race == false or mode == 2) then
 		return false
@@ -153,6 +207,52 @@ function OnGameEnd()
 end
 
 function OnScriptUnload()
+end
+
+function OnTick()
+   --only check pings if warping is not allowed
+   if (allow_warps == false) then
+      CheckPings()
+   end
+end
+
+function CheckPings()
+   current_ticks = get_var(1, "$ticks")
+   time_since_last = (current_ticks - last_ping_check)
+
+
+   --We check the player's pings
+   if (time_since_last >= 30) then
+
+      --loop 1 - 16
+      for i = 1,16 do
+         if player_present(i) then
+
+            ping = GetPlayerPing(i)
+
+            --only count if previous ping was not 0
+            if (player_ping[i] > "0") then
+               --if ping spikes higher than the thresholg
+               if ((ping-player_ping[i]) > ping_threshold) then
+                  player_warps[i] = 1
+               end
+            end
+
+            --set their ping to this
+            player_ping[i] = ping
+         end
+      end
+
+      last_ping_check = current_ticks
+   end
+end
+
+function GetPlayerPing(PlayerIndex)
+   if (player_present(PlayerIndex)) then
+      return get_var(PlayerIndex, "$ping")
+   else
+      return 0
+   end
 end
 
 
