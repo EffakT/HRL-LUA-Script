@@ -13,7 +13,7 @@ allow_warps = false
 debug = 0
 player_ping = {}
 last_ping_check = 0
-ping_threshold = 20
+ping_threshold = 200
 
 ffi = require("ffi")
 ffi.cdef [[
