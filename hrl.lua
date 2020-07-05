@@ -4,16 +4,18 @@ server_port = "2302" -- update this with your port. If port is invalid, your ser
 api_version = "1.11.0.0"
 
 
+debug = 0
+
 current_map = nil
 race = false
 mode = 0
 player_warps = {}
 game_started = false
 allow_warps = false
-debug = 0
 player_ping = {}
 last_ping_check = 0
 ping_threshold = 100
+player_ping_stability = {}
 
 ffi = require("ffi")
 ffi.cdef [[
@@ -25,6 +27,10 @@ http_client = ffi.load("hrl_api")
 
 function SendTime(URL, json)
     http_client.http_post(URL, json)
+end
+
+function SendClaim(URL, json)
+   http_client.http_post(URL, json)
 end
 
 
@@ -48,6 +54,7 @@ function OnScriptLoad()
 	for i = 1,16 do--	Reset personal stats
 		player_warps[i] = 0
 		player_ping[i] = 0
+		player_ping_stability[i] = {}
 	end
 end
 
@@ -68,19 +75,29 @@ function OnServerCommand(playerIndex, Command)
     local t = tokenizestring(Command)
     count = #t
     -- /logtime time
-    if debug then
+    if debug == 1 then
 
         if t[1] == "logtime" then
-		player = get_player(playerIndex)
         	logTime(playerIndex, t[2])
-		return false;
+		   return false;
         end
     end
+
+    if t[1] == "claimplayer" then
+         claimPlayer(playerIndex, t[2])
+      return false;
+     end
 end
 
 
 
 function OnPlayerScore(playerIndex)
+
+
+   --check ping stability
+
+   -- Reset ping stability
+	player_ping_stability[playerIndex] = {}
 
 	-- Only record if user is driver, or walking
 	local player_address = get_dynamic_player(playerIndex)
@@ -101,11 +118,34 @@ function OnPlayerScore(playerIndex)
 		player = get_player(playerIndex)
 		best_time = read_word(player + 0xC4)--	Player's current time
 		best_time = best_time/30
-		logTime(player, best_time)
+		logTime(playerIndex, best_time)
 
 	elseif (player_warps[playerIndex] == 1) then
 		say(playerIndex, "We detected a warp or a lag spike, your lap time was not recorded")
 	end
+end
+
+function claimPlayer(playerIndex, claim_code)
+   current_name =  string.toutf8(get_var(playerIndex, "$name"))
+   player_hash = get_var(playerIndex, "$hash")
+   player_hash = player_hash
+
+   if (debug == 1) then
+      json = '{"player_hash": "'..player_hash..'", "code": "'..claim_code..'", "test": true}'
+   else
+      json = '{"player_hash": "'..player_hash..'", "code": "'..claim_code..'"}'
+   end
+   cprint(json);
+
+   if (debug == 1) then
+      URL = "http://dev.haloraceleaderboard.effakt.info/api/claimplayer"
+   else
+      URL = "http://haloraceleaderboard.effakt.info/api/claimplayer"
+   end
+
+   say(playerIndex, "Your player claim request has been submitted.")
+   SendClaim(URL, json)
+
 end
 
 function logTime(playerIndex, best_time)
@@ -121,7 +161,7 @@ function logTime(playerIndex, best_time)
 		--map_name = read_string(0x698F21)
 		map_name = ""
 
-		if (debug) then
+		if (debug == 1) then
 			json = '{"port":"'..server_port..'", "player_hash": "'..player_hash..'", "player_name":"'..current_name..'", "map_name": "'..current_map..'", "map_label": "'..map_name..'", "race_type": "'..mode..'", "player_time":"'..best_time..'", "test":"true"}'
 		else
 			json = '{"port":"'..server_port..'", "player_hash": "'..player_hash..'", "player_name":"'..current_name..'", "map_name": "'..current_map..'", "map_label": "'..map_name..'", "race_type": "'..mode..'", "player_time":"'..best_time..'"}'
@@ -134,7 +174,7 @@ function logTime(playerIndex, best_time)
       end
 
 	    if (debug == 1) then
-         say(playerIndex, "Your time of "..best_time.." has been recorded")
+         say(playerIndex, "Your time of "..best_time.." has been recorded.")
 	    end
 
 		SendTime(URL, json)
@@ -200,6 +240,7 @@ function OnGameEnd()
 	for i = 1,16 do
       player_warps[i] = 0
 		player_ping[i] = 0
+		player_ping_stability[i] = {}
 	end
 	if(race == false or mode == 2) then
 		return false
