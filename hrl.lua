@@ -1,3 +1,6 @@
+-- API Requests run through http instead of https due to dependency issue
+
+
 server_port = "2302" -- update this with your port. If port is invalid, your server will not be included.
 
 
@@ -123,6 +126,9 @@ function OnPlayerScore(playerIndex)
 	elseif (player_warps[playerIndex] == 1) then
 		say(playerIndex, "We detected a warp or a lag spike, your lap time was not recorded")
 	end
+
+   -- Reset Player warps after lap
+   player_warps[playerIndex] = 0
 end
 
 function claimPlayer(playerIndex, claim_code)
@@ -183,6 +189,7 @@ end
 function OnWarp(PlayerIndex)
 	if (allow_warps == false) then
 		player_warps[PlayerIndex] = 1
+      say(playerIndex, "We just detected a warp. This lap will not count")
 	end
 end
 
@@ -276,6 +283,7 @@ function CheckPings()
                --if ping spikes higher than the thresholg
                if ((ping-player_ping[i]) > ping_threshold) then
                   player_warps[i] = 1
+                  say(playerIndex, "We just detected a ping spike. This lap will not count")
                end
             end
 
